@@ -1,0 +1,222 @@
+---
+title: "Wifi localization"
+output: github_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,include = TRUE,warning = FALSE,message = FALSE)
+```
+
+
+## Synopsis
+This project demonstrates logistic regression as a classifier to predict the room a person/device is in, based on the wifi signal state.
+
+Relavent information:
+The data is obtained from the source [UCI ML database](https://archive.ics.uci.edu/ml/datasets/Wireless+Indoor+Localization).Collected in indoor space by observing signal strengths of seven WiFi signals visible on a smartphone. The decision variable is one of the four rooms.
+The dataset has 2000 observation with 8 variables and "room" is the interested response
+Libraries used: readr,caret,e1071,ggplot2,gridExtra,knitr.
+```{r}
+library(readr)
+library(knitr)
+library(ggplot2);
+library(gridExtra)
+library(e1071)
+library(caret)
+```
+
+####Classification:
+Linear regression assumes that the response variable Y is quantitative. However, in many situations we are dealing with qualitative response variables. Generally, we will refer to these types of variables as categorical variables. Classification thereby involves assigning categorical variables to a specific class. Usually, we predict the probability of any observation belonging to a specific class.
+
+There are many classification techniques, or classifiers, that could be used to predict a given qualitative response variables,commoly used one are-
+
+*  Logistic Regression    
+*  Linear Discriminant Analysis
+*  K-nearest neighbors
+*  SVM
+*  Random forest
+
+Just like linear regression, in classification we have a set of training observations which we leverage to build a classifier, and we test our model performance on the test data to simulate out of sample error. In this project we will use signal strength as model inputs to predict which room an individual is present, using logistic regression.
+
+##Overview of Analysis approach
+1. Data Preprocessing and Visualiaztion
+2. Fitting and analysing a simple model 
+3. Data cleaning
+4. Fitting a complete model 
+5. Inferences
+
+###Data preprocessing
+The data is loaded as wifi, and the response variable is name as "room" and the dataset is attached for easier invoking.Then we examine the preditor variables and check for observations containing "NA" values and 
+
+```{r}
+
+wifi <- read_delim("wifi_localization.txt","\t", escape_double = FALSE, col_names = FALSE,
+                   trim_ws = TRUE)
+names(wifi)<-c("X1","X2","X3","X4","X5","X6","X7","room")
+wifi$room<-as.factor(wifi$room)
+attach(wifi)
+table(is.na(wifi))
+```
+We see there aren't any NA values in the dataset.
+
+###Data preprocessing
+Next we look at the head of the dataframe giving a brief snapshot of the data we have.We see there are 8 variable of which seven are predictor variable named as X1,X2,...,X7 and response variable is room.
+```{r}
+kable(head(wifi),caption = "Wifi localization dataframe")
+```
+
+Lets plot and see the distribution of a single signal variable(all X's are similar) and the number of observations in each class(room).      
+```{r}
+plot(wifi$room,xlab="Room no",ylab="Frequency",ylim=c(0,700))
+hist(wifi$X2,xlab = "signal strength",ylab = "frequency",main="Histogram of X2 signal strength")
+```
+
+We see a approx. normal distribution for X2 and the each class contains about 25% of total observations, so the class distribution isn't skewed,highly favourable for our analysis.
+
+Next we plot the the class distribution across different predictor variables,a few of them are plotted to give an understanding of how well   the class are seperated to differentiate them.    
+```{r}
+x <- qplot(x=X1, y=X2, color=room, shape=room,geom='point')+scale_shape(solid=FALSE)
+y <- qplot(x=X5, y=X3, color=room, shape=room,geom='point')+scale_shape(solid=FALSE)
+z <- qplot(x=X4, y=X7, color=room, shape=room,geom='point')+scale_shape(solid=FALSE)
+w <- qplot(x=X6, y=X3, color=room, shape=room,geom='point')+scale_shape(solid=FALSE)
+grid.arrange(x,y,z,w, nrow=2)
+```
+
+In many plots we see atleast 2 classes have a well differentiable linear boundary with just 2 variables.We will checkout how each predictor variable are distributed for each class.
+```{r }
+qplotter<-function(i){
+  a=qplot(x=room, y=wifi[,i], fill=room, geom='boxplot',ylab=names(wifi)[i])+guides(fill=FALSE)
+  return(a)
+}
+grid.arrange(qplotter(1),qplotter(2),qplotter(3),qplotter(4),qplotter(5),qplotter(6),qplotter(7), nrow=2)
+```
+   
+We see that the median for the distribution of variables X1,X4 for each class are separted.Also we see there many be outliers for many of the variables.So we need to do some data cleaning.
+
+For simple understanding, we well model a simple logistic regression on single variable X1.This is a multi-class classification problem as we have four classes, we will use one vs all approach to solve this.In one vs all approach, K-1  logistic model are trained.For training a model for class i, all observations of class i are labelled as 1 and others as 0. As such it becomes a binary classification problem and so similar logistic model are trained K classes(in general its sufficient to train K-1 models).As mentioned before we predict the probability of any observation belonging to a specific class.From the 4 model we get the class probabilities and the observation is labelled to the class with highest probability.
+
+```{r}
+logisticfn<-function(y,x,frame,class){
+  logit <- glm(I(y==class) ~ x, data=frame, family='binomial')
+  return(predict(logit,type = "response"))
+}
+K=4
+classprob=matrix(0,2000,K)
+for (i in 1:K){
+  classprob[,i]=logisticfn(room,X1,wifi,class=i)
+}
+head(classprob)
+predictedclass<-max.col(classprob)
+head(predictedclass)
+table(predicted=predictedclass,actual=room)
+cat("Accuracy=",mean(predictedclass==room)*100,"\n")
+```
+The above results display the class probabilites and the resulting class labels.We use a confusion matrix to evaluate our model performance, it shows the predicted class vs actual class.We get a training accuracy of about 75.9% on 2000 observations.From the confusion we see that model has done a good job on class 2 and 3 and majority of mismatches are from actual class of 1 and 4, the reasoning for this can done from the earlier boxplot for var X1, we see that distribution of X1 for class 1 and 4 are pretty overlapping and as logistic regression find a linearly seperable line distinguishing two classes, so it natural that many mismatches are from those class as they have distribution in similar range.
+
+####Data Splitting for validation
+The available data is split in 75:25 ratio to obatin training and test datasets.
+```{r}
+set.seed(4)
+m=dim(wifi)[1]
+ind=sample(seq(m),0.75*m,replace=FALSE)
+wifi_train<-wifi[ind,]
+wifi_test<-wifi[-ind,]
+attach(wifi_train)
+```
+###Data cleaning
+Below is function for detecting outliers and replacing them with $NA$ values in the dataframe.It takes in the dataframe and variable as input.It outputs the details about the outliers.
+```{r}
+outlierKD <- function(dt, var,i) {
+     var_name <- eval(substitute(var),eval(dt))
+     na1 <- sum(is.na(var_name))
+     m1 <- mean(var_name, na.rm = T)
+     par(mfrow=c(2, 2), oma=c(0,0,3,0))
+     boxplot(var_name, main="With outliers",xlab=names(wifi)[i])
+     hist(var_name, main="With outliers", xlab=names(wifi)[i], ylab=NA)
+     outlier <- boxplot.stats(var_name)$out
+     mo <- mean(outlier)
+     var_name <- ifelse(var_name %in% outlier, NA, var_name)
+     boxplot(var_name, main="Without outliers",xlab=names(wifi)[i])
+     hist(var_name, main="Without outliers", xlab=names(wifi)[i], ylab=NA)
+     title("Outlier Check", outer=TRUE)
+     na2 <- sum(is.na(var_name))
+     cat("Outliers identified:", na2 - na1,"\n")
+     cat("Propotion (%) of outliers:", round((na2 - na1) / sum(!is.na(var_name))*100, 1),"\n")
+     cat("Mean of the outliers:", round(mo, 2),"\n")
+     m2 <- mean(var_name, na.rm = T)
+     cat("Mean without removing outliers:", round(m1, 2),"\n")
+     cat("Mean if we remove outliers:", round(m2, 2),"\n")
+     #response <- readline(prompt="Do you want to remove outliers and to replace with NA? [yes/no]: ")
+     response="y"
+     if(response == "y" | response == "yes"){
+          dt[as.character(substitute(var))] <- invisible(var_name)
+          assign(as.character(as.list(match.call())$dt), dt, envir = .GlobalEnv)
+          cat("Outliers successfully removed for ",names(wifi)[i],"\n")
+          cat("=====================================================","\n")
+          return(invisible(dt))
+     } else{
+          cat("Nothing changed","\n")
+          return(invisible(var_name))
+     }
+     
+}
+rmoutlier<-function(){
+  outlierKD(wifi_train,X1,1)
+  outlierKD(wifi_train,X2,2)
+  outlierKD(wifi_train,X3,3)
+  outlierKD(wifi_train,X4,4)
+  outlierKD(wifi_train,X5,5)
+  outlierKD(wifi_train,X6,6)
+  outlierKD(wifi_train,X7,7)}
+```
+The training data is cleaned and we can see the number of outliers removed.
+```{r}
+before=dim(wifi_train)[1]
+rmoutlier()
+wifi_train<-na.omit(wifi_train)
+outliers=before-dim(wifi_train)[1]
+cat("Number of outlier ommited",outliers,"\n")
+```
+###Complete Model
+From the variable distribution of each class we can assume a linear seperator in 7 dimensional space could very well work as a classifier. Also since we  know that the signal strength from each source are uncorrelated, we can neglect the interaction terms and neglecting higher order polynomial terms which could overfit the data, we will build multi class logistics model with all 7 predictors in the model.Similar to single variable case 4 binary class models are trained from the training dataset(wifi_train).   
+```{r}
+multilogpred<-function(X,K,newdata){
+classprob=matrix(0,dim(newdata)[1],K)
+for (i in 1:K){
+  logit <- glm(I(X$room==i) ~ ., data=X, family='binomial')
+  classprob[,i]=predict(logit,newdata = newdata,type = "response")
+}
+return(classprob)
+}
+```
+We will evaluate the model using training error(misclassification error).As before confusion matrix is created.
+```{r}
+classes=4
+classprob<-multilogpred(wifi_train,classes,wifi_train)
+predictedclass<-max.col(classprob)
+table(predicted=predictedclass,actual=wifi_train$room)
+mean(predictedclass==wifi_train$room)
+predictedclass<-as.factor(predictedclass)
+confusionMatrix(predictedclass,wifi_train$room)
+```
+We see an accuracy of 97.8% on the training set, also see that the precision and recall of each binary model is above 96%.Next we will evaluate our model on the test set.
+```{r}
+testclassprob<-multilogpred(wifi_train,classes,wifi_test)
+testpredictedclass<-max.col(testclassprob)
+table(predicted=testpredictedclass,actual=wifi_test$room)
+mean(testpredictedclass==wifi_test$room)
+testpredictedclass<-as.factor(testpredictedclass)
+confusionMatrix(testpredictedclass,wifi_test$room)
+```
+We see an accuracy of 97.2% on the test set.It has a very good accuracy and our assumption was good and the model has genarlized well over the test set.
+
+### Conclusion   
+* We have seen how to perform multiclass logistic regression as a classifier.The classes in the dataset had well seperable region, so a model contatining  variables of polynomial degree=1 was sufficient to produce a good classifier.    
+* Adding many variables in the model would result in a low training error.So futher extension is so build simpler models with few variables that are very easy to interpret and also have low misclassification rate, which essentially depends on the use case, how to balance the error rate and model interpretation.You can refer to my earlier post on linear regression,performing variable selection using subset selection method. 
+* In this project I have used logistic regression as a classifier, other classifier such as KNN,LDA are also available, you can try it.In this post I haven't displayed the model trained and understanding the coefficients estimated(will do it next post). 
+* Application domain: Detecting users in an indoor environment based on Wi-Fi signal strength has a wide domain of applications. This can be used for objectives like locating users in smart home systems, locating criminals in bounded regions, obtaining the count of users on an access point etc. This project demonstartes a approach that is scalable in real-world. 
+
+
+
+
+
+
