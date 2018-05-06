@@ -12,4 +12,4 @@ The second part employs Gaussian naïve Bayes and Decision trees as classifiers.
 The resulting models have test accuracy in the range 96% - 98% .
 The code is written in R markdown format with detailed description of the process employed.
 
- The first part project using logistic regression is explained at my blog( do checkout): https://subhash-karthik.github.io/Spam/
+ The first part project using logistic regression is explained at my blog( do checkout): https://subhash-karthik.github.io/wifi/
